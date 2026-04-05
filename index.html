@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>PDR Light Board Pro</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0d0a05;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas#board {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+    transition: opacity 0.3s;
+  }
+  #cameraLayer {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0; display: none;
+  }
+  #cameraLayer video { width: 100%; height: 100%; object-fit: cover; }
+  #cameraLayer.active { display: block; }
+
+  #rulerCanvas {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 10; pointer-events: none; display: none;
+  }
+  #rulerCanvas.active { display: block; pointer-events: auto; }
+
+  #flash {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: #fff; z-index: 500;
+    opacity: 0; pointer-events: none; transition: opacity 0.08s;
+  }
+  #flash.fire { opacity: 0.7; }
+
+  #powerDot {
+    position: fixed; top: max(12px, env(safe-area-inset-top, 12px)); left: 16px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #2ecc40; box-shadow: 0 0 8px #2ecc40; z-index: 300;
+  }
+
+  .top-bar {
+    position: fixed; top: max(10px, env(safe-area-inset-top, 10px)); right: 12px;
+    z-index: 300; display: flex; gap: 8px;
+  }
+  .top-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(13,10,5,0.75); border: 1px solid rgba(212,160,74,0.3);
+    color: #d4a04a; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: all 0.2s; position: relative;
+  }
+  .top-btn:active { background: rgba(212,160,74,0.3); }
+  .top-btn.active-tool { background: rgba(212,160,74,0.3); border-color: #d4a04a; box-shadow: 0 0 10px rgba(212,160,74,0.3); }
+  .top-btn .badge { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; background: #2ecc40; display: none; }
+  .top-btn.active-tool .badge { display: block; }
+
+  #shutterBtn {
+    position: fixed; bottom: max(100px, calc(env(safe-area-inset-bottom, 20px) + 90px));
+    left: 50%; transform: translateX(-50%);
+    width: 64px; height: 64px; border-radius: 50%;
+    background: transparent; border: 3px solid #d4a04a;
+    cursor: pointer; z-index: 250; display: none;
+  }
+  #shutterBtn::after {
+    content: ''; position: absolute; top: 5px; left: 5px; right: 5px; bottom: 5px;
+    border-radius: 50%; background: rgba(212,160,74,0.9); transition: transform 0.1s;
+  }
+  #shutterBtn:active::after { transform: scale(0.85); }
+  #shutterBtn.show { display: block; }
+
+  #rulerInfo {
+    position: fixed; top: max(56px, calc(env(safe-area-inset-top, 12px) + 46px));
+    left: 50%; transform: translateX(-50%);
+    background: rgba(10,8,3,0.88); border: 1px solid rgba(212,160,74,0.35);
+    border-radius: 12px; padding: 8px 18px; z-index: 300; display: none;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  #rulerInfo.show { display: flex; gap: 14px; align-items: center; }
+  #rulerInfo .measurement { color: #e8b960; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #rulerInfo .unit { color: rgba(212,160,74,0.6); font-size: 12px; font-weight: 600; }
+  #rulerInfo .reset-btn {
+    background: rgba(212,160,74,0.15); border: 1px solid rgba(212,160,74,0.25);
+    color: #d4a04a; padding: 4px 10px; border-radius: 6px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; cursor: pointer;
+  }
+
+  #calibrationModal {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(5,4,2,0.92); z-index: 400;
+    display: none; flex-direction: column; align-items: center; justify-content: center; padding: 30px;
+  }
+  #calibrationModal.show { display: flex; }
+  .cal-title { color: #e8b960; font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+  .cal-text { color: rgba(212,160,74,0.7); font-size: 14px; text-align: center; line-height: 1.5; margin-bottom: 24px; max-width: 300px; }
+  .cal-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; }
+  .cal-input {
+    width: 80px; padding: 10px; background: rgba(212,160,74,0.1);
+    border: 1px solid rgba(212,160,74,0.3); border-radius: 8px;
+    color: #e8b960; font-size: 18px; font-weight: 700; text-align: center; outline: none;
+  }
+  .cal-input:focus { border-color: #d4a04a; }
+  .cal-unit { color: rgba(212,160,74,0.6); font-size: 14px; font-weight: 600; }
+  .cal-btn {
+    padding: 12px 32px; background: rgba(212,160,74,0.2); border: 1px solid rgba(212,160,74,0.4);
+    border-radius: 10px; color: #e8b960; font-size: 14px; font-weight: 700; letter-spacing: 1px; cursor: pointer;
+  }
+  .cal-btn:active { background: rgba(212,160,74,0.4); }
+  .cal-skip { margin-top: 16px; color: rgba(212,160,74,0.4); font-size: 12px; cursor: pointer; border: none; background: none; }
+
+  #panel {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+    background: linear-gradient(to top, rgba(10,8,3,0.97) 0%, rgba(10,8,3,0.88) 60%, rgba(10,8,3,0) 100%);
+    padding: 14px 14px max(18px, env(safe-area-inset-bottom, 18px));
+    display: flex; flex-direction: column; gap: 8px;
+    transition: transform 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.35s;
+  }
+  #panel.hidden { transform: translateY(100%); opacity: 0; pointer-events: none; }
+
+  .mode-tabs {
+    display: flex; background: rgba(212,160,74,0.08);
+    border-radius: 10px; padding: 3px; border: 1px solid rgba(212,160,74,0.12);
+  }
+  .mode-tab {
+    flex: 1; padding: 8px 4px; border: none; background: transparent;
+    color: rgba(212,160,74,0.45); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; border-radius: 8px; cursor: pointer; transition: all 0.25s;
+  }
+  .mode-tab.active { background: rgba(212,160,74,0.2); color: #e8b960; }
+
+  .dir-tabs {
+    display: flex; background: rgba(212,160,74,0.06);
+    border-radius: 8px; padding: 2px; border: 1px solid rgba(212,160,74,0.1);
+  }
+  .dir-tab {
+    flex: 1; padding: 6px 4px; border: none; background: transparent;
+    color: rgba(212,160,74,0.4); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; border-radius: 6px; cursor: pointer; transition: all 0.25s;
+  }
+  .dir-tab.active { background: rgba(212,160,74,0.18); color: #d4a04a; }
+
+  .slider-row { display: flex; align-items: center; gap: 8px; }
+  .slider-icon { width: 24px; color: rgba(212,160,74,0.55); font-size: 12px; text-align: center; flex-shrink: 0; }
+  .slider-wrap { flex: 1; }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+    background: rgba(212,160,74,0.15); border-radius: 2px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #f0c868, #b8842e);
+    box-shadow: 0 0 8px rgba(212,160,74,0.4); cursor: pointer;
+  }
+  .slider-val { min-width: 30px; color: #c89438; font-size: 11px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+  .temp-bar { display: flex; gap: 6px; justify-content: center; padding: 4px 0; }
+  .temp-swatch {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid transparent; cursor: pointer; transition: all 0.2s;
+  }
+  .temp-swatch.active { border-color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.3); transform: scale(1.15); }
+
+  .scroll-row { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+  .scroll-label { color: rgba(212,160,74,0.55); font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .toggle-switch {
+    width: 40px; height: 22px; background: rgba(212,160,74,0.12);
+    border-radius: 11px; position: relative; cursor: pointer;
+    border: 1px solid rgba(212,160,74,0.2); transition: background 0.3s;
+  }
+  .toggle-switch.on { background: rgba(212,160,74,0.35); border-color: rgba(212,160,74,0.5); }
+  .toggle-knob {
+    width: 16px; height: 16px; border-radius: 50%; background: #d4a04a;
+    position: absolute; top: 2px; left: 2px; transition: transform 0.25s;
+  }
+  .toggle-switch.on .toggle-knob { transform: translateX(18px); }
+  #speedRow { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
+  #speedRow.show { max-height: 50px; }
+  .divider { height: 1px; background: rgba(212,160,74,0.08); margin: 1px 0; }
+  #downloadLink { display: none; }
+</style>
+</head>
+<body>
+
+<div id="cameraLayer"><video id="cameraVideo" autoplay playsinline muted></video></div>
+<canvas id="board"></canvas>
+<canvas id="rulerCanvas"></canvas>
+<div id="flash"></div>
+<div id="powerDot"></div>
+
+<div class="top-bar">
+  <button class="top-btn" id="btnRuler" onclick="toggleRuler()">📏<div class="badge"></div></button>
+  <button class="top-btn" id="btnCamera" onclick="toggleCamera()">📷<div class="badge"></div></button>
+  <button class="top-btn" id="btnSettings" onclick="togglePanel()">⚙</button>
+</div>
+
+<button id="shutterBtn" onclick="capturePhoto()"></button>
+
+<div id="rulerInfo">
+  <div><span class="measurement" id="rulerMM">0.0</span><span class="unit"> mm</span></div>
+  <div><span class="measurement" id="rulerInch" style="font-size:15px;">0.00</span><span class="unit"> in</span></div>
+  <button class="reset-btn" onclick="resetRuler()">RESET</button>
+</div>
+
+<div id="calibrationModal">
+  <div class="cal-title">Βαθμονόμηση Χάρακα</div>
+  <div class="cal-text">Πόσο φαρδιά είναι η οθόνη σου σε χιλιοστά;<br>Μέτρησε με χάρακα το πλάτος και γράψε τον αριθμό.</div>
+  <div class="cal-input-row">
+    <input type="number" class="cal-input" id="calInput" placeholder="π.χ. 65">
+    <span class="cal-unit">mm</span>
+  </div>
+  <button class="cal-btn" onclick="saveCalibration()">ΑΠΟΘΗΚΕΥΣΗ</button>
+  <button class="cal-skip" onclick="skipCalibration()">Χρήση προεπιλογής</button>
+</div>
+
+<div id="panel">
+  <div class="mode-tabs">
+    <button class="mode-tab active" onclick="setMode('lines',this)">Γραμμές</button>
+    <button class="mode-tab" onclick="setMode('grid',this)">Πλέγμα</button>
+    <button class="mode-tab" onclick="setMode('combo',this)">Combo</button>
+    <button class="mode-tab" onclick="setMode('fog',this)">Fog</button>
+  </div>
+  <div class="dir-tabs">
+    <button class="dir-tab active" onclick="setDir('vertical',this)">▮ Κάθετα</button>
+    <button class="dir-tab" onclick="setDir('horizontal',this)">▬ Οριζόντια</button>
+    <button class="dir-tab" onclick="setDir('both',this)">╋ Και τα δύο</button>
+  </div>
+  <div class="divider"></div>
+  <div class="slider-row">
+    <div class="slider-icon">┃</div>
+    <div class="slider-wrap"><input type="range" id="sLineW" min="1" max="30" value="5" oninput="update()"></div>
+    <span class="slider-val" id="vLineW">5</span>
+  </div>
+  <div class="slider-row">
+    <div class="slider-icon">┆</div>
+    <div class="slider-wrap"><input type="range" id="sGapW" min="1" max="30" value="5" oninput="update()"></div>
+    <span class="slider-val" id="vGapW">5</span>
+  </div>
+  <div class="slider-row">
+    <div class="slider-icon">☀</div>
+    <div class="slider-wrap"><input type="range" id="sBright" min="10" max="100" value="85" oninput="update()"></div>
+    <span class="slider-val" id="vBright">85%</span>
+  </div>
+  <div class="divider"></div>
+  <div class="temp-bar" id="tempBar"></div>
+  <div class="divider"></div>
+  <div class="scroll-row">
+    <span class="scroll-label">Κίνηση γραμμών</span>
+    <div class="toggle-switch" id="scrollToggle" onclick="toggleScroll()"><div class="toggle-knob"></div></div>
+  </div>
+  <div id="speedRow">
+    <div class="slider-row">
+      <div class="slider-icon">⟫</div>
+      <div class="slider-wrap"><input type="range" id="sSpeed" min="1" max="10" value="3" oninput="update()"></div>
+      <span class="slider-val" id="vSpeed">3</span>
+    </div>
+  </div>
+</div>
+
+<a id="downloadLink"></a>
+
+<script>
+const S = {
+  mode:'lines', dir:'vertical', lineW:5, gapW:5, brightness:0.85,
+  colorIdx:0, scrolling:false, speed:3, offset:0,
+  cameraOn:false, rulerOn:false, pxPerMM:null,
+  rulerStart:null, rulerEnd:null, rulerDragging:false,
+};
+
+const colors = [
+  { strip:'#d4a04a', hi:'#e8b960', dark:'#b8842e', bg:'#0d0a05' },
+  { strip:'#e0c080', hi:'#f0d8a0', dark:'#c8a860', bg:'#0d0a05' },
+  { strip:'#f5f5f0', hi:'#ffffff', dark:'#d0d0c8', bg:'#0a0a0a' },
+  { strip:'#a8d8ff', hi:'#c8e8ff', dark:'#78b8e8', bg:'#050a10' },
+  { strip:'#ff8844', hi:'#ffaa66', dark:'#cc6622', bg:'#0d0805' },
+  { strip:'#44ff88', hi:'#88ffbb', dark:'#22cc55', bg:'#050d08' },
+];
+
+const board = document.getElementById('board');
+const bCtx = board.getContext('2d');
+const rulerC = document.getElementById('rulerCanvas');
+const rCtx = rulerC.getContext('2d');
+
+function resize() {
+  const dpr = window.devicePixelRatio||1;
+  const w = window.innerWidth, h = window.innerHeight;
+  board.width = w*dpr; board.height = h*dpr;
+  rulerC.width = w*dpr; rulerC.height = h*dpr;
+  board.style.width = w+'px'; board.style.height = h+'px';
+  rulerC.style.width = w+'px'; rulerC.style.height = h+'px';
+  bCtx.setTransform(dpr,0,0,dpr,0,0);
+  rCtx.setTransform(dpr,0,0,dpr,0,0);
+  draw(); if(S.rulerOn) drawRuler();
+}
+window.addEventListener('resize', resize);
+
+// Color swatches
+const tempBar = document.getElementById('tempBar');
+colors.forEach((c,i)=>{
+  const sw = document.createElement('div');
+  sw.className = 'temp-swatch'+(i===0?' active':'');
+  sw.style.background = c.strip;
+  sw.onclick = ()=>{ S.colorIdx=i; document.querySelectorAll('.temp-swatch').forEach(s=>s.classList.remove('active')); sw.classList.add('active'); draw(); };
+  tempBar.appendChild(sw);
+});
+
+function rgba(hex,a){ const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
+function readSliders(){
+  S.lineW=+document.getElementById('sLineW').value; S.gapW=+document.getElementById('sGapW').value;
+  S.brightness=+document.getElementById('sBright').value/100; S.speed=+document.getElementById('sSpeed').value;
+  document.getElementById('vLineW').textContent=S.lineW; document.getElementById('vGapW').textContent=S.gapW;
+  document.getElementById('vBright').textContent=Math.round(S.brightness*100)+'%'; document.getElementById('vSpeed').textContent=S.speed;
+}
+
+function drawStrips(dir,lw,gw,w,h,c,br,off){
+  const step=lw+gw, isV=dir==='vertical', len=isV?w:h, span=isV?h:w;
+  for(let i=-(step*2)+(off%step);i<len+step;i+=step){
+    const grad=isV?bCtx.createLinearGradient(0,0,0,span):bCtx.createLinearGradient(0,0,span,0);
+    grad.addColorStop(0,rgba(c.dark,br*0.65)); grad.addColorStop(0.12,rgba(c.hi,br));
+    grad.addColorStop(0.5,rgba(c.strip,br*0.95)); grad.addColorStop(0.88,rgba(c.hi,br));
+    grad.addColorStop(1,rgba(c.dark,br*0.65));
+    bCtx.fillStyle=grad;
+    if(isV) bCtx.fillRect(i,0,lw,span); else bCtx.fillRect(0,i,span,lw);
+    const gs=Math.max(lw*0.4,2);
+    const gg=isV?bCtx.createLinearGradient(i-gs,0,i+lw+gs,0):bCtx.createLinearGradient(0,i-gs,0,i+lw+gs);
+    gg.addColorStop(0,rgba(c.strip,0)); gg.addColorStop(0.3,rgba(c.strip,br*0.06));
+    gg.addColorStop(0.7,rgba(c.strip,br*0.06)); gg.addColorStop(1,rgba(c.strip,0));
+    bCtx.fillStyle=gg;
+    if(isV) bCtx.fillRect(i-gs,0,lw+gs*2,span); else bCtx.fillRect(0,i-gs,span,lw+gs*2);
+  }
+}
+
+function draw(){
+  const w=window.innerWidth,h=window.innerHeight,c=colors[S.colorIdx];
+  const lw=S.lineW*2.5,gw=S.gapW*2.5,br=S.brightness,off=S.offset;
+  bCtx.fillStyle=c.bg; bCtx.fillRect(0,0,w,h);
+  if(S.mode==='fog'){
+    const grad=bCtx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.max(w,h)*0.6);
+    grad.addColorStop(0,rgba(c.hi,br)); grad.addColorStop(0.5,rgba(c.strip,br*0.85)); grad.addColorStop(1,rgba(c.dark,br*0.5));
+    bCtx.fillStyle=grad; bCtx.fillRect(0,0,w,h); return;
+  }
+  const doV=S.dir==='vertical'||S.dir==='both', doH=S.dir==='horizontal'||S.dir==='both';
+  if(S.mode==='lines'){
+    if(doV) drawStrips('vertical',lw,gw,w,h,c,br,off);
+    if(doH) drawStrips('horizontal',lw,gw,w,h,c,doV?br*0.6:br,off);
+  } else if(S.mode==='grid'){
+    drawStrips('vertical',lw,gw,w,h,c,br*0.7,off);
+    drawStrips('horizontal',lw,gw,w,h,c,br*0.7,off);
+    const step=lw+gw;
+    for(let x=-(step*2)+(off%step);x<w+step;x+=step)
+      for(let y=-(step*2)+(off%step);y<h+step;y+=step){ bCtx.fillStyle=rgba(c.hi,br*0.25); bCtx.fillRect(x,y,lw,lw); }
+  } else if(S.mode==='combo'){
+    const step=lw+gw;
+    if(doV) for(let x=-(step*2)+(off%step);x<w+step;x+=step){
+      const fade=Math.max(0.2,1-Math.abs(x-w/2)/(w/2)*0.6);
+      const grad=bCtx.createLinearGradient(0,0,0,h);
+      grad.addColorStop(0,rgba(c.dark,br*fade*0.6)); grad.addColorStop(0.15,rgba(c.hi,br*fade));
+      grad.addColorStop(0.5,rgba(c.strip,br*fade*0.95)); grad.addColorStop(0.85,rgba(c.hi,br*fade));
+      grad.addColorStop(1,rgba(c.dark,br*fade*0.6)); bCtx.fillStyle=grad; bCtx.fillRect(x,0,lw,h);
+    }
+    if(doH) for(let y=-(step*2)+(off%step);y<h+step;y+=step){
+      const fade=Math.max(0.2,1-Math.abs(y-h/2)/(h/2)*0.6);
+      bCtx.fillStyle=rgba(c.strip,br*fade*(doV?0.4:0.9)); bCtx.fillRect(0,y,w,lw);
+    }
+  }
+}
+
+// Animation
+let lastT=0;
+function animate(ts){
+  if(S.scrolling){ S.offset+=S.speed*40*((ts-lastT)/1000); draw(); if(S.rulerOn) drawRuler(); }
+  lastT=ts; requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// ── RULER ──
+function getPxPerMM(){ return S.pxPerMM || (window.devicePixelRatio*96)/25.4; }
+
+function drawRuler(){
+  const w=window.innerWidth,h=window.innerHeight;
+  rCtx.clearRect(0,0,w,h);
+  if(!S.rulerOn) return;
+  const ppmm=getPxPerMM();
+
+  // Edge rulers
+  rCtx.strokeStyle='rgba(232,185,96,0.35)'; rCtx.fillStyle='rgba(232,185,96,0.5)';
+  rCtx.font='9px -apple-system,sans-serif'; rCtx.lineWidth=1;
+  // Top
+  for(let mm=0;mm*ppmm<w;mm++){
+    const x=mm*ppmm, isCm=mm%10===0, is5=mm%5===0, th=isCm?16:is5?10:5;
+    rCtx.beginPath(); rCtx.moveTo(x,0); rCtx.lineTo(x,th); rCtx.stroke();
+    if(isCm&&mm>0) rCtx.fillText(mm/10+'',x+2,24);
+  }
+  // Left
+  for(let mm=0;mm*ppmm<h;mm++){
+    const y=mm*ppmm, isCm=mm%10===0, is5=mm%5===0, tw=isCm?16:is5?10:5;
+    rCtx.beginPath(); rCtx.moveTo(0,y); rCtx.lineTo(tw,y); rCtx.stroke();
+    if(isCm&&mm>0){ rCtx.save(); rCtx.translate(24,y+3); rCtx.fillText(mm/10+'',0,0); rCtx.restore(); }
+  }
+
+  // Measurement line
+  if(S.rulerStart&&S.rulerEnd){
+    const sx=S.rulerStart.x,sy=S.rulerStart.y,ex=S.rulerEnd.x,ey=S.rulerEnd.y;
+    const dist=Math.sqrt((ex-sx)**2+(ey-sy)**2);
+    const distMM=dist/ppmm, distInch=distMM/25.4;
+
+    rCtx.strokeStyle='#e8b960'; rCtx.lineWidth=2; rCtx.setLineDash([6,4]);
+    rCtx.beginPath(); rCtx.moveTo(sx,sy); rCtx.lineTo(ex,ey); rCtx.stroke(); rCtx.setLineDash([]);
+
+    // Endpoints
+    [S.rulerStart,S.rulerEnd].forEach(p=>{
+      rCtx.fillStyle='#e8b960'; rCtx.beginPath(); rCtx.arc(p.x,p.y,6,0,Math.PI*2); rCtx.fill();
+      rCtx.fillStyle='#0d0a05'; rCtx.beginPath(); rCtx.arc(p.x,p.y,3,0,Math.PI*2); rCtx.fill();
+      rCtx.strokeStyle='rgba(232,185,96,0.4)'; rCtx.lineWidth=1;
+      rCtx.beginPath(); rCtx.moveTo(p.x-14,p.y); rCtx.lineTo(p.x+14,p.y); rCtx.stroke();
+      rCtx.beginPath(); rCtx.moveTo(p.x,p.y-14); rCtx.lineTo(p.x,p.y+14); rCtx.stroke();
+    });
+
+    document.getElementById('rulerMM').textContent=distMM.toFixed(1);
+    document.getElementById('rulerInch').textContent=distInch.toFixed(2);
+  }
+}
+
+function getPos(e){ const t=e.touches?e.touches[0]:e; return {x:t.clientX,y:t.clientY}; }
+
+rulerC.addEventListener('touchstart',e=>{ if(!S.rulerOn)return; e.preventDefault(); S.rulerStart=getPos(e); S.rulerEnd=null; S.rulerDragging=true; document.getElementById('rulerInfo').classList.add('show'); });
+rulerC.addEventListener('touchmove',e=>{ if(!S.rulerDragging)return; e.preventDefault(); S.rulerEnd=getPos(e); drawRuler(); });
+rulerC.addEventListener('touchend',()=>{ S.rulerDragging=false; });
+rulerC.addEventListener('mousedown',e=>{ if(!S.rulerOn)return; S.rulerStart={x:e.clientX,y:e.clientY}; S.rulerEnd=null; S.rulerDragging=true; document.getElementById('rulerInfo').classList.add('show'); });
+rulerC.addEventListener('mousemove',e=>{ if(!S.rulerDragging)return; S.rulerEnd={x:e.clientX,y:e.clientY}; drawRuler(); });
+rulerC.addEventListener('mouseup',()=>{ S.rulerDragging=false; });
+
+function resetRuler(){ S.rulerStart=null; S.rulerEnd=null; document.getElementById('rulerMM').textContent='0.0'; document.getElementById('rulerInch').textContent='0.00'; drawRuler(); }
+
+// ── CAMERA ──
+let cameraStream=null;
+async function toggleCamera(){
+  S.cameraOn=!S.cameraOn;
+  const btn=document.getElementById('btnCamera'), layer=document.getElementById('cameraLayer'), shutter=document.getElementById('shutterBtn');
+  if(S.cameraOn){
+    try{
+      cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false});
+      document.getElementById('cameraVideo').srcObject=cameraStream;
+      layer.classList.add('active'); btn.classList.add('active-tool'); shutter.classList.add('show');
+      board.style.opacity='0.45';
+    }catch(e){ S.cameraOn=false; alert('Δεν ήταν δυνατή η πρόσβαση στην κάμερα'); }
+  } else {
+    if(cameraStream) cameraStream.getTracks().forEach(t=>t.stop()); cameraStream=null;
+    layer.classList.remove('active'); btn.classList.remove('active-tool'); shutter.classList.remove('show');
+    board.style.opacity='1';
+  }
+}
+
+function capturePhoto(){
+  const flash=document.getElementById('flash'); flash.classList.add('fire'); setTimeout(()=>flash.classList.remove('fire'),150);
+  const tc=document.createElement('canvas'); const w=window.innerWidth,h=window.innerHeight,dpr=window.devicePixelRatio||1;
+  tc.width=w*dpr; tc.height=h*dpr; const tCtx=tc.getContext('2d'); tCtx.setTransform(dpr,0,0,dpr,0,0);
+  tCtx.drawImage(document.getElementById('cameraVideo'),0,0,w,h);
+  tCtx.globalAlpha=0.45; tCtx.drawImage(board,0,0,w,h); tCtx.globalAlpha=1;
+  if(S.rulerOn) tCtx.drawImage(rulerC,0,0,w,h);
+  tc.toBlob(blob=>{
+    const url=URL.createObjectURL(blob); const a=document.getElementById('downloadLink');
+    a.href=url; a.download='PDR_'+new Date().toISOString().slice(0,19).replace(/[:-]/g,'')+'.jpg'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  },'image/jpeg',0.92);
+}
+
+// ── TOGGLES ──
+function toggleRuler(){
+  S.rulerOn=!S.rulerOn;
+  const btn=document.getElementById('btnRuler'), rc=rulerC, info=document.getElementById('rulerInfo');
+  if(S.rulerOn){
+    let saved=null; try{ saved=localStorage.getItem('pdr_pxpermm'); }catch(e){}
+    if(saved) S.pxPerMM=parseFloat(saved);
+    else document.getElementById('calibrationModal').classList.add('show');
+    rc.classList.add('active'); btn.classList.add('active-tool'); drawRuler();
+  } else { rc.classList.remove('active'); btn.classList.remove('active-tool'); info.classList.remove('show'); resetRuler(); }
+}
+
+function saveCalibration(){
+  const mm=parseFloat(document.getElementById('calInput').value);
+  if(!mm||mm<10){ alert('Βάλε ένα σωστό νούμερο (π.χ. 65)'); return; }
+  S.pxPerMM=window.innerWidth/mm;
+  try{ localStorage.setItem('pdr_pxpermm',S.pxPerMM.toString()); }catch(e){}
+  document.getElementById('calibrationModal').classList.remove('show'); drawRuler();
+}
+function skipCalibration(){ S.pxPerMM=null; document.getElementById('calibrationModal').classList.remove('show'); drawRuler(); }
+
+function update(){ readSliders(); draw(); }
+function setMode(m,el){ S.mode=m; document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); draw(); }
+function setDir(d,el){ S.dir=d; document.querySelectorAll('.dir-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); draw(); }
+function toggleScroll(){
+  S.scrolling=!S.scrolling; document.getElementById('scrollToggle').classList.toggle('on'); document.getElementById('speedRow').classList.toggle('show');
+  const dot=document.getElementById('powerDot'); dot.style.background=S.scrolling?'#ff8844':'#2ecc40'; dot.style.boxShadow=S.scrolling?'0 0 8px #ff8844':'0 0 8px #2ecc40';
+}
+function togglePanel(){ const p=document.getElementById('panel'); p.classList.toggle('hidden'); document.getElementById('btnSettings').style.opacity=p.classList.contains('hidden')?'0.35':'1'; }
+
+// Fullscreen double-tap
+let lastTap=0;
+board.addEventListener('touchend',e=>{ if(S.rulerOn)return; const now=Date.now();
+  if(now-lastTap<300){ e.preventDefault(); if(!document.fullscreenElement&&!document.webkitFullscreenElement)(document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen)?.call(document.documentElement); else(document.exitFullscreen||document.webkitExitFullscreen)?.call(document); }
+  lastTap=now;
+});
+
+// Wake lock
+async function keepAwake(){ try{ if('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(e){} }
+keepAwake(); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') keepAwake(); });
+
+resize(); readSliders();
+</script>
+</body>
+</html>
